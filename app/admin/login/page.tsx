@@ -7,27 +7,54 @@ export default function AdminLogin() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('🔐 Starting login process...');
+    console.log('🌐 Current environment:', process.env.NODE_ENV);
+    console.log('🔗 Base URL:', window.location.origin);
 
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-      credentials: "include", // wajib biar cookie tersimpan
-    });
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+        credentials: "include", // wajib biar cookie tersimpan
+      });
 
-    if (res.ok) {
-      const data = await res.json();
+      console.log('📡 Login response status:', res.status);
+      console.log('📄 Response headers:', Object.fromEntries(res.headers.entries()));
       
-      // Store token in localStorage for client-side authentication
-      if (data.token) {
-        localStorage.setItem("token", data.token);
+      if (res.ok) {
+        const data = await res.json();
+        console.log('📄 Login response data:', data);
+        
+        // Store token in localStorage for client-side authentication
+        if (data.token) {
+          console.log('💾 Storing token in localStorage...');
+          localStorage.setItem("token", data.token);
+          console.log('✅ Token stored successfully');
+          
+          // Verify token was stored
+          const storedToken = localStorage.getItem("token");
+          console.log('🔍 Verification - token exists in localStorage:', !!storedToken);
+          console.log('🔍 Token length:', storedToken?.length || 0);
+        } else {
+          console.log('❌ No token received in response');
+          setError("Login failed - no token received");
+          return;
+        }
+        
+        console.log('🚀 Redirecting to admin dashboard...');
+        // Small delay to ensure localStorage is set before redirect
+        setTimeout(() => {
+          window.location.href = "/admin";
+        }, 100);
+      } else {
+        const data = await res.json();
+        console.log('❌ Login failed:', data);
+        setError(data.message || "Login failed");
       }
-      
-      // Redirect to admin dashboard
-      window.location.href = "/admin";
-    } else {
-      const data = await res.json();
-      setError(data.message || "Login failed");
+    } catch (error) {
+      console.error('🚨 Login error:', error);
+      setError("Network error. Please check your connection and try again.");
     }
   };
 

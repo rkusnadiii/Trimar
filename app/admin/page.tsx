@@ -13,37 +13,49 @@ export default function AdminPage() {
 
   useEffect(() => {
     const checkAuth = async () => {
+      console.log('🔍 Starting auth check...');
       const token = localStorage.getItem("token");
+      console.log('📝 Token from localStorage:', token ? 'EXISTS' : 'MISSING');
       
       if (!token) {
+        console.log('❌ No token found, redirecting to login');
         // No token in localStorage, redirect to login
         window.location.href = "/admin/login";
         return;
       }
       
       try {
-        // Verify token is still valid by making a test API call
-        const response = await fetch("/api/works", {
+        console.log('🌐 Making auth verification request...');
+        // Verify token is still valid by calling the auth verify endpoint
+        const response = await fetch("/api/auth/verify", {
           headers: {
             "Authorization": `Bearer ${token}`
           }
         });
         
+        console.log('📡 Auth verification response:', response.status, response.statusText);
+        
         if (response.ok) {
+          const verifyData = await response.json();
+          console.log('✅ Auth verification successful:', verifyData);
           setIsAuthenticated(true);
         } else {
+          console.log('❌ Auth verification failed, removing token and redirecting');
+          const responseText = await response.text();
+          console.log('Response details:', responseText);
           // Token might be expired or invalid
           localStorage.removeItem("token");
           window.location.href = "/admin/login";
           return;
         }
       } catch (error) {
-        console.error("Auth check error:", error);
+        console.error("🚨 Auth check error:", error);
         localStorage.removeItem("token");
         window.location.href = "/admin/login";
         return;
       }
       
+      console.log('🏁 Auth check completed');
       setLoading(false);
     };
     

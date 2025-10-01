@@ -1,10 +1,19 @@
 import { NextResponse, NextRequest } from "next/server";
-import { PrismaClient } from "@/app/generated/prisma";
+import mysql, { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import { writeFile, mkdir, unlink } from "fs/promises";
 import { join } from "path";
 import { withAuth } from "@/lib/auth";
 
-const prisma = new PrismaClient();
+// Database connection function
+async function getConnection() {
+  return await mysql.createConnection({
+    host: process.env.DB_HOST,
+    port: Number(process.env.DB_PORT),
+    user: process.env.DB_USERNAME,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_DATABASE,
+  });
+}
 
 // GET work by slug (public)
 export async function GET(
@@ -13,27 +22,54 @@ export async function GET(
 ) {
   try {
     const { slug } = await params;
-    const work = await (prisma as any).works.findUnique({
-      where: {
-        slug: slug
-      }
-    });
-
-    if (!work) {
+    console.log('📋 Fetching work by slug:', slug);
+    
+    const conn = await getConnection();
+    
+    // Get work details
+    const [works] = await conn.execute<RowDataPacket[]>(
+      `SELECT id, slug, name, logo, year, img, description 
+       FROM works 
+       WHERE slug = ?`,
+      [slug]
+    );
+    
+    if (works.length === 0) {
+      await conn.end();
       return NextResponse.json({ error: 'Work not found' }, { status: 404 });
     }
+    
+    const work = works[0];
+    
+    // Get gallery images
+    const [gallery] = await conn.execute<RowDataPacket[]>(
+      `SELECT image_url 
+       FROM work_gallery 
+       WHERE work_id = ?
+       ORDER BY id`,
+      [work.id]
+    );
+    
+    await conn.end();
+    console.log('✅ Found work with', gallery.length, 'gallery images');
 
     // Map response for frontend compatibility
     const mappedWork = {
-      ...work,
-      logo_url: (work as any).logo,
-      thumbnail_url: (work as any).img,
-      gallery: [] // Temporarily empty until Prisma client is regenerated
+      id: work.id,
+      slug: work.slug,
+      name: work.name,
+      logo: work.logo,
+      year: work.year,
+      img: work.img,
+      description: work.description,
+      logo_url: work.logo || "/images/gallery1.webp",
+      thumbnail_url: work.img || "/images/gallery1.webp",
+      gallery: gallery.map((g: any) => g.image_url)
     };
 
     return NextResponse.json(mappedWork);
   } catch (error) {
-    console.error('Error fetching work:', error);
+    console.error('❌ Error fetching work:', error);
     return NextResponse.json({ error: 'Failed to fetch work' }, { status: 500 });
   }
 }
@@ -45,6 +81,8 @@ export const PUT = withAuth(async (
 ) => {
   try {
     const { slug } = await params;
+    console.log('✏️ Updating work by slug:', slug);
+    
     const formData = await request.formData();
     const name = formData.get('name') as string;
     const description = formData.get('description') as string;
@@ -54,6 +92,21 @@ export const PUT = withAuth(async (
     if (!name || !description) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
+
+    const conn = await getConnection();
+    
+    // Check if work exists
+    const [works] = await conn.execute<RowDataPacket[]>(
+      `SELECT id FROM works WHERE slug = ?`,
+      [slug]
+    );
+
+    if (works.length === 0) {
+      await conn.end();
+      return NextResponse.json({ error: 'Work not found' }, { status: 404 });
+    }
+
+    const workId = works[0].id;
 
     // Parse existing gallery
     let existingGallery: string[] = [];
@@ -103,33 +156,47 @@ export const PUT = withAuth(async (
       }
     }
 
-    // Combine existing and new gallery
-    const finalGallery = [...existingGallery, ...newGalleryUrls];
+    // Update work in database
+    await conn.execute(
+      `UPDATE works SET name = ?, description = ?, img = ? WHERE id = ?`,
+      [name, description, finalBannerUrl, workId]
+    );
 
-    if (finalGallery.length === 0) {
-      return NextResponse.json({ error: 'At least one image is required' }, { status: 400 });
+    // Update gallery - delete existing and insert new
+    if (newGalleryUrls.length > 0) {
+      // Delete existing gallery
+      await conn.execute(
+        `DELETE FROM work_gallery WHERE work_id = ?`,
+        [workId]
+      );
+
+      // Combine existing and new gallery
+      const finalGallery = [...existingGallery, ...newGalleryUrls];
+
+      // Insert new gallery
+      for (const imageUrl of finalGallery) {
+        await conn.execute(
+          `INSERT INTO work_gallery (work_id, image_url) VALUES (?, ?)`,
+          [workId, imageUrl]
+        );
+      }
     }
-    
-    const work = await (prisma as any).works.update({
-      where: {
-        slug: slug
-      },
-      data: {
+
+    await conn.end();
+    console.log('✅ Work updated successfully');
+
+    return NextResponse.json({ 
+      success: true, 
+      work: {
+        id: workId,
+        slug,
         name,
         description,
-        img: finalBannerUrl // Use img field for banner until banner_url is added
-        // images: {
-        //   deleteMany: {}, // Delete all existing images
-        //   create: finalGallery.map(url => ({
-        //     image_url: url
-        //   }))
-        // }
+        img: finalBannerUrl
       }
     });
-
-    return NextResponse.json({ success: true, work });
   } catch (error) {
-    console.error('Error updating work:', error);
+    console.error('❌ Error updating work:', error);
     return NextResponse.json({ error: 'Failed to update work' }, { status: 500 });
   }
 });
@@ -141,41 +208,81 @@ export const DELETE = withAuth(async (
 ) => {
   try {
     const { slug } = await params;
+    console.log('🗑️ Deleting work by slug:', slug);
     
-    // Get work data first to delete associated files
-    const work = await (prisma as any).works.findUnique({
-      where: { slug }
-    });
+    const conn = await getConnection();
+    
+    // Get work details first to delete associated files
+    const [works] = await conn.execute<RowDataPacket[]>(
+      `SELECT id, img FROM works WHERE slug = ?`,
+      [slug]
+    );
 
-    if (work) {
-      // Delete associated image files
-      const uploadDir = join(process.cwd(), 'public', 'uploads', 'works');
-      
-      // Delete banner file if exists
-      if ((work as any).img) {
-        try {
-          const fileName = (work as any).img.split('/').pop();
-          if (fileName) {
-            const filePath = join(uploadDir, fileName);
-            await unlink(filePath);
-          }
-        } catch (error) {
-          console.error('Error deleting banner file:', error);
-        }
-      }
-      
-      // TODO: Delete gallery files when images relation is available
+    if (works.length === 0) {
+      await conn.end();
+      return NextResponse.json({ error: 'Work not found' }, { status: 404 });
     }
 
-    await (prisma as any).works.delete({
-      where: {
-        slug: slug
-      }
-    });
+    const work = works[0];
+    const workId = work.id;
 
-    return NextResponse.json({ success: true });
+    // Get gallery images for file deletion
+    const [gallery] = await conn.execute<RowDataPacket[]>(
+      `SELECT image_url FROM work_gallery WHERE work_id = ?`,
+      [workId]
+    );
+
+    // Delete gallery images first (foreign key constraint)
+    await conn.execute(
+      `DELETE FROM work_gallery WHERE work_id = ?`,
+      [workId]
+    );
+    
+    // Delete the work
+    const [result] = await conn.execute<ResultSetHeader>(
+      `DELETE FROM works WHERE id = ?`,
+      [workId]
+    );
+    
+    await conn.end();
+
+    // Delete associated image files
+    const uploadDir = join(process.cwd(), 'public', 'uploads', 'works');
+    
+    // Delete banner file if exists
+    if (work.img) {
+      try {
+        const fileName = work.img.split('/').pop();
+        if (fileName) {
+          const filePath = join(uploadDir, fileName);
+          await unlink(filePath);
+        }
+      } catch (error) {
+        console.error('Error deleting banner file:', error);
+      }
+    }
+
+    // Delete gallery files
+    for (const img of gallery) {
+      try {
+        const fileName = img.image_url.split('/').pop();
+        if (fileName) {
+          const filePath = join(uploadDir, fileName);
+          await unlink(filePath);
+        }
+      } catch (error) {
+        console.error('Error deleting gallery file:', error);
+      }
+    }
+
+    console.log('✅ Work deleted successfully');
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Work deleted successfully',
+      deletedRows: result.affectedRows
+    });
   } catch (error) {
-    console.error('Error deleting work:', error);
+    console.error('❌ Error deleting work:', error);
     return NextResponse.json({ error: 'Failed to delete work' }, { status: 500 });
   }
 });

@@ -1,10 +1,19 @@
 import { NextResponse, NextRequest } from "next/server";
-import { PrismaClient } from "@/app/generated/prisma";
+import mysql, { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
-import { withAuth, verifyToken } from "@/lib/auth";
+import { withAuth } from "@/lib/auth";
 
-const prisma = new PrismaClient();
+// Database connection function
+async function getConnection() {
+  return await mysql.createConnection({
+    host: process.env.DB_HOST,
+    port: Number(process.env.DB_PORT),
+    user: process.env.DB_USERNAME,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_DATABASE,
+  });
+}
 
 // Handle CORS preflight requests
 export async function OPTIONS() {
@@ -18,22 +27,18 @@ export async function OPTIONS() {
 // GET all works (public)
 export async function GET() {
   try {
-    const works = await (prisma as any).works.findMany({
-      orderBy: {
-        id: 'desc'
-      }
-    });
-
-    // Ensure works is an array
-    if (!Array.isArray(works)) {
-      console.error('Works is not an array:', works);
-      const response = NextResponse.json([], { status: 200 });
-      // Add CORS headers
-      response.headers.set('Access-Control-Allow-Origin', '*');
-      response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-      response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-      return response;
-    }
+    console.log('📋 Fetching works from database...');
+    const conn = await getConnection();
+    
+    const [works] = await conn.execute<RowDataPacket[]>(
+      `SELECT 
+        id, slug, name, logo, year, img, description 
+       FROM works 
+       ORDER BY id DESC`
+    );
+    
+    await conn.end();
+    console.log('✅ Found', works.length, 'works');
 
     // Map response for frontend compatibility
     const mappedWorks = works.map((work: any) => ({
@@ -46,7 +51,7 @@ export async function GET() {
       description: work.description || '',
       logo_url: work.logo || "/images/gallery1.webp",
       thumbnail_url: work.img || "/images/gallery1.webp",
-      gallery: [] // Temporarily empty until Prisma client is regenerated
+      gallery: [] // Will be populated when needed
     }));
     
     const response = NextResponse.json(mappedWorks);
@@ -56,7 +61,7 @@ export async function GET() {
     response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     return response;
   } catch (error) {
-    console.error('Error fetching works:', error);
+    console.error('❌ Error fetching works:', error);
     return NextResponse.json({ error: 'Failed to fetch works' }, { status: 500 });
   }
 }
@@ -64,12 +69,14 @@ export async function GET() {
 // CREATE new work (protected)
 export const POST = withAuth(async (req: NextRequest) => {
   try {
+    console.log('📝 Creating new work...');
     const formData = await req.formData();
     const slug = formData.get('slug') as string;
     const name = formData.get('name') as string;
     const description = formData.get('description') as string;
     
     if (!slug || !name || !description) {
+      console.log('❌ Missing required fields');
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
@@ -111,30 +118,49 @@ export const POST = withAuth(async (req: NextRequest) => {
     }
 
     if (galleryUrls.length === 0) {
+      console.log('❌ No gallery images provided');
       return NextResponse.json({ error: 'At least one gallery image is required' }, { status: 400 });
     }
 
     if (!bannerUrl) {
+      console.log('❌ No banner image provided');
       return NextResponse.json({ error: 'Banner image is required' }, { status: 400 });
     }
     
-    const work = await (prisma as any).works.create({
-      data: {
+    // Insert work into database
+    console.log('💾 Inserting work into database...');
+    const conn = await getConnection();
+    
+    const [result] = await conn.execute<ResultSetHeader>(
+      `INSERT INTO works (slug, name, description, img) 
+       VALUES (?, ?, ?, ?)`,
+      [slug, name, description, bannerUrl]
+    );
+    
+    // Insert gallery images
+    for (const imageUrl of galleryUrls) {
+      await conn.execute(
+        `INSERT INTO work_gallery (work_id, image_url) VALUES (?, ?)`,
+        [result.insertId, imageUrl]
+      );
+    }
+    
+    await conn.end();
+    console.log('✅ Work created successfully with ID:', result.insertId);
+    
+    return NextResponse.json({ 
+      success: true, 
+      work: {
+        id: result.insertId,
         slug,
         name,
         description,
-        img: bannerUrl // Use img field for banner until banner_url is added
-        // images: {
-        //   create: galleryUrls.map(url => ({
-        //     image_url: url
-        //   }))
-        // }
+        img: bannerUrl,
+        gallery: galleryUrls
       }
     });
-    
-    return NextResponse.json({ success: true, work });
   } catch (error) {
-    console.error('Error creating work:', error);
+    console.error('❌ Error creating work:', error);
     return NextResponse.json({ error: 'Failed to create work' }, { status: 500 });
   }
 });
