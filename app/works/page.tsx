@@ -3,6 +3,7 @@
 // app/works/page.tsx
 import Image from "next/image";
 import Link from "next/link";
+import { motion } from "framer-motion";
 import PageLoaderWrapper from "@/components/PageLoaderWrapper";
 import { useEffect, useState } from "react";
 
@@ -78,17 +79,31 @@ export default function WorksPage() {
 
         <section className="flex-1 py-12 px-4 pt-70 relative z-10">
           {/* Heading */}
-          <h1 className="text-6xl md:text-7xl font-extrabold text-center animate-in slide-in-from-top-10 duration-700">
+          <motion.h1
+            initial={{ opacity: 0, y: -40 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
+            className="text-6xl md:text-7xl font-extrabold text-center"
+          >
             <span className="text-white">Our </span>
             <span className="text-yellow-400">Works</span>
-          </h1>
+          </motion.h1>
 
           {/* Grid Portfolio */}
           {currentWorks.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-[10px] max-w-[1080px] mx-auto pt-20">
               {currentWorks.map((work: any, i: number) => (
               <Link key={work.id} href={`/works/${work.slug}`}>
-                <div className="relative overflow-hidden group cursor-pointer w-full h-60 animate-in slide-in-from-bottom-4 duration-500" style={{ animationDelay: `${i * 150}ms` }}>
+                <motion.div
+                  className="relative overflow-hidden group cursor-pointer w-full h-60"
+                  initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{
+                    duration: 0.6,
+                    delay: i * 0.15,
+                    ease: "easeOut",
+                  }}
+                >
                   {/* Thumbnail Work */}
                   <Image
                     src={work.thumbnail_url || work.img || "/images/gallery1.webp"}
@@ -134,7 +149,7 @@ export default function WorksPage() {
                       </span>
                     </div>
                   </div>
-                </div>
+                </motion.div>
               </Link>
             ))}
             </div>
