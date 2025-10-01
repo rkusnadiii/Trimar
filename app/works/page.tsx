@@ -14,14 +14,21 @@ async function getWorks() {
   try {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
     const res = await fetch(`${baseUrl}/api/works`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
       cache: "no-store", // biar selalu fresh
+      mode: 'cors', // Explicitly enable CORS
+      credentials: 'same-origin', // Include credentials for same-origin requests
     });
 
     if (!res.ok) {
-      throw new Error(`Failed to fetch works: ${res.status}`);
+      throw new Error(`Failed to fetch works: ${res.status} ${res.statusText}`);
     }
 
-    return res.json();
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
   } catch (error) {
     console.error('Error fetching works:', error);
     // Return empty array as fallback
@@ -30,7 +37,7 @@ async function getWorks() {
 }
 
 export default function WorksPage() {
-  const [works, setWorks] = useState([]);
+  const [works, setWorks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

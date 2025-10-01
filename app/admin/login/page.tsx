@@ -16,7 +16,15 @@ export default function AdminLogin() {
     });
 
     if (res.ok) {
-      window.location.href = "/admin"; // <--- redirect langsung ke dashboard
+      const data = await res.json();
+      
+      // Store token in localStorage for client-side authentication
+      if (data.token) {
+        localStorage.setItem("token", data.token);
+      }
+      
+      // Redirect to admin dashboard
+      window.location.href = "/admin";
     } else {
       const data = await res.json();
       setError(data.message || "Login failed");

@@ -6,6 +6,15 @@ import { withAuth, verifyToken } from "@/lib/auth";
 
 const prisma = new PrismaClient();
 
+// Handle CORS preflight requests
+export async function OPTIONS() {
+  const response = new NextResponse(null, { status: 200 });
+  response.headers.set('Access-Control-Allow-Origin', '*');
+  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  return response;
+}
+
 // GET all works (public)
 export async function GET() {
   try {
@@ -18,7 +27,12 @@ export async function GET() {
     // Ensure works is an array
     if (!Array.isArray(works)) {
       console.error('Works is not an array:', works);
-      return NextResponse.json([], { status: 200 });
+      const response = NextResponse.json([], { status: 200 });
+      // Add CORS headers
+      response.headers.set('Access-Control-Allow-Origin', '*');
+      response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      return response;
     }
 
     // Map response for frontend compatibility
@@ -35,7 +49,12 @@ export async function GET() {
       gallery: [] // Temporarily empty until Prisma client is regenerated
     }));
     
-    return NextResponse.json(mappedWorks);
+    const response = NextResponse.json(mappedWorks);
+    // Add CORS headers
+    response.headers.set('Access-Control-Allow-Origin', '*');
+    response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    return response;
   } catch (error) {
     console.error('Error fetching works:', error);
     return NextResponse.json({ error: 'Failed to fetch works' }, { status: 500 });

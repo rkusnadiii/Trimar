@@ -47,8 +47,15 @@ export async function POST(req: Request) {
       { expiresIn: "1h" }
     );
 
-    // Set cookie and return success response
-    const res = NextResponse.json({ success: true });
+    // Set cookie and return success response with token
+    const res = NextResponse.json({ 
+      success: true,
+      token: token, // Include token in response for localStorage
+      user: {
+        id: user.id,
+        username: user.username
+      }
+    });
     res.cookies.set("token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production" ? true : false,

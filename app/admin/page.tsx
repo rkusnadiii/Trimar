@@ -12,13 +12,42 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      window.location.href = "/admin/login";
-      return;
-    }
-    setIsAuthenticated(true);
-    setLoading(false);
+    const checkAuth = async () => {
+      const token = localStorage.getItem("token");
+      
+      if (!token) {
+        // No token in localStorage, redirect to login
+        window.location.href = "/admin/login";
+        return;
+      }
+      
+      try {
+        // Verify token is still valid by making a test API call
+        const response = await fetch("/api/works", {
+          headers: {
+            "Authorization": `Bearer ${token}`
+          }
+        });
+        
+        if (response.ok) {
+          setIsAuthenticated(true);
+        } else {
+          // Token might be expired or invalid
+          localStorage.removeItem("token");
+          window.location.href = "/admin/login";
+          return;
+        }
+      } catch (error) {
+        console.error("Auth check error:", error);
+        localStorage.removeItem("token");
+        window.location.href = "/admin/login";
+        return;
+      }
+      
+      setLoading(false);
+    };
+    
+    checkAuth();
   }, []);
 
   const deleteWork = async (slug: string) => {
@@ -45,9 +74,21 @@ export default function AdminPage() {
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem("token");
-    window.location.href = "/admin/login";
+  const logout = async () => {
+    try {
+      // Call logout API to clear server-side cookie
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include"
+      });
+    } catch (error) {
+      console.error("Logout error:", error);
+    } finally {
+      // Clear localStorage token
+      localStorage.removeItem("token");
+      // Redirect to login
+      window.location.href = "/admin/login";
+    }
   };
 
   if (loading) {
