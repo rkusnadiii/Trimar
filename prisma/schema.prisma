@@ -1,0 +1,41 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model works {
+  id          Int      @id @default(autoincrement())
+  slug        String   @unique
+  name        String
+  logo        String?
+  year        String?
+  img         String?
+  description String
+  
+  // Relation to work_gallery table
+  work_gallery work_gallery[]
+}
+
+model work_gallery {
+  id        Int    @id @default(autoincrement())
+  work_id   Int
+  image_url String
+  works     works  @relation(fields: [work_id], references: [id], onDelete: Cascade)
+}
+
+model admins {
+  id       Int    @id @default(autoincrement())
+  username String @unique
+  password String
+}
